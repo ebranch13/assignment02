@@ -5,42 +5,27 @@ and bus_trips tables from GTFS bus feed,
 find the two routes with the longest trips.
 */
 
-WITH shape_geoms AS (
-    SELECT 
+WITH septa_bus_shapes_geom AS (
+    SELECT
         shape_id,
-        ST_MakeLine(
-            ST_SetSRID(ST_MakePoint(shape_pt_lon, shape_pt_lat), 4326)::geography 
-            ORDER BY shape_pt_sequence
-        ) AS shape_geog
+        public.ST_MakeLine(
+            array_agg(
+                public.ST_SetSRID(public.ST_MakePoint(shape_pt_lon, shape_pt_lat), 4326)
+                ORDER BY shape_pt_sequence
+            )
+        ) AS shape_geom
     FROM septa.bus_shapes
     GROUP BY shape_id
-),
-
-trip_shapes AS (
-    SELECT 
-        bt.trip_id,
-        bt.route_id,
-        bt.trip_headsign,
-        sg.shape_geog,
-        ROUND(ST_Length(sg.shape_geog)) AS shape_length
-    FROM septa.bus_trips bt
-    JOIN shape_geoms sg ON bt.shape_id = sg.shape_id
-),
-
-trip_with_routes AS (
-    SELECT 
-        br.route_short_name,
-        ts.trip_headsign,
-        ts.shape_geog,
-        ts.shape_length,
-        ROW_NUMBER() OVER (ORDER BY ts.shape_length DESC) AS rn
-    FROM trip_shapes ts
-    JOIN septa.bus_routes br ON ts.route_id = br.route_id
 )
-SELECT 
-    route_short_name,
-    trip_headsign,
-    shape_geog,
-    shape_length
-FROM trip_with_routes
-WHERE rn <= 2;
+SELECT DISTINCT
+    routes.route_short_name,
+    trips.trip_headsign,
+    public.ST_SetSRID(shapes.shape_geom, 4326)::geography AS shape_geog,
+    round((public.ST_Length(public.ST_Transform(shapes.shape_geom, 32129)))::numeric, 0) AS shape_length
+FROM septa_bus_shapes_geom AS shapes
+INNER JOIN septa.bus_trips AS trips
+    ON shapes.shape_id = trips.shape_id
+INNER JOIN septa.bus_routes AS routes
+    ON trips.route_id = routes.route_id
+ORDER BY shape_length DESC
+LIMIT 2;

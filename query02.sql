@@ -1,25 +1,28 @@
+WITH septa_bus_stop_blockgroups AS (
+    SELECT
+        stops.stop_id,
+        '1500000US' || bg.geoid AS geoid
+    FROM septa.bus_stops AS stops
+    INNER JOIN census.blockgroups_2020 AS bg
+        ON public.ST_DWithin(stops.geog, bg.geog, 800)
+    WHERE bg.geoid LIKE '42101%'
+),
+septa_bus_stop_surrounding_population AS (
+    SELECT
+        stops.stop_id,
+        SUM(pop.total) AS estimated_pop_800m
+    FROM septa_bus_stop_blockgroups AS stops
+    INNER JOIN census.population_2020 AS pop
+        USING (geoid)
+    GROUP BY stops.stop_id
+    HAVING SUM(pop.total) > 500
+)
 SELECT
-  bs.stop_name,
-  SUM(p.total) AS estimated_pop_800m,
-  bs.geog
-FROM (
-  SELECT
-    stop_id,
-    stop_name,
-    stop_lat,
-    stop_lon,
-    ST_SetSRID(ST_MakePoint(stop_lon, stop_lat), 4326)::geography AS geog
-  FROM septa.bus_stops
-) bs
-JOIN census.blockgroups_2020 bg
-  ON ST_Intersects(
-    ST_Buffer(bs.geog, 800),
-    bg.geog
-  )
-JOIN census.population_2020 p
-  ON bg.geoid = p.geoid
-WHERE bg.geoid LIKE '42101%'  -- Philadelphia County
-GROUP BY bs.stop_name, bs.geog
-HAVING SUM(p.total) > 500
-ORDER BY estimated_pop_800m ASC
+    stops.stop_name,
+    pop.estimated_pop_800m,
+    stops.geog
+FROM septa_bus_stop_surrounding_population AS pop
+INNER JOIN septa.bus_stops AS stops
+    USING (stop_id)
+ORDER BY pop.estimated_pop_800m ASC
 LIMIT 8;
